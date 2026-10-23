@@ -1,0 +1,22 @@
+{
+  "name": "omo-auto-router",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Virtual model for omo that routes each prompt to a model you configure per difficulty level, across any provider",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "scripts": {
+    "setup": "bun scripts/setup.ts",
+    "check": "bun scripts/setup.ts --check",
+    "uninstall": "bun scripts/setup.ts --uninstall",
+    "test": "bun test",
+    "typecheck": "bun scripts/typecheck.ts"
+  }
+}

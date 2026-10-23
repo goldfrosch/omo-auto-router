@@ -1,0 +1,17 @@
+{
+  // Base settings. `bun run typecheck` writes tsconfig.gen.json, which extends this file and points
+  // the senpi imports at the locally installed engine (senpi aliases them to the host at runtime).
+  // test/ is left to `bun test`, which needs bun's own types.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["extensions", "src", "scripts"]
+}

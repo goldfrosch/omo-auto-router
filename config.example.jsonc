@@ -1,0 +1,36 @@
+// omo-auto-router config. Lives at <agent dir>/auto-router.jsonc (usually ~/.omo/agent/).
+// Edits apply on the next prompt; adding or removing a profile needs `/auto-router reload` or a restart.
+// Models are "provider/model" exactly as /model lists them. A list is tried in order and the first
+// model with credentials is used, so later entries are fallbacks.
+{
+  "classifier": {
+    // Small, fast model that labels each prompt trivial / standard / complex / hard.
+    "models": ["anthropic-subscription/claude-haiku-4-5"],
+    "timeoutMs": 15000
+  },
+
+  // At or above this many context tokens the router never switches to a lower level (cache safety).
+  "downgradeMaxContext": 80000,
+  // Prompts containing these words go straight to "hard".
+  "hardKeywords": ["ulw", "ultrawork", "hyperplan"],
+
+  // Each key is the virtual model you select in /model or settings.json (provider/id).
+  "profiles": {
+    "anthropic-subscription/claude-auto": {
+      "name": "Claude Auto",
+      "contextWindow": 300000,
+      "levels": {
+        "trivial": { "models": ["anthropic-subscription/claude-haiku-4-5"], "thinking": "low", "maxContext": 80000 },
+        "standard": { "models": ["anthropic-subscription/claude-sonnet-5-5"], "thinking": "medium" },
+        "complex": { "models": ["anthropic-subscription/claude-opus-5-5"], "thinking": "high" },
+        "hard": { "models": ["anthropic-subscription/claude-opus-5-5"], "thinking": "max" }
+      },
+      // "#opus" anywhere in a prompt pins that turn to the route.
+      "tags": {
+        "haiku": { "models": ["anthropic-subscription/claude-haiku-4-5"], "thinking": "low", "maxContext": 80000 },
+        "sonnet": { "models": ["anthropic-subscription/claude-sonnet-5-5"], "thinking": "high" },
+        "opus": { "models": ["anthropic-subscription/claude-opus-5-5"], "thinking": "max" }
+      }
+    }
+  }
+}

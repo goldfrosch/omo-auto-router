@@ -1,6 +1,6 @@
 {
   "name": "omo-auto-router",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Virtual model for omo that routes each prompt to a model you configure per difficulty level, across any provider",
   "type": "module",

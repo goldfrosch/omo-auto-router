@@ -113,6 +113,8 @@ async function classify(
 				{
 					// Reasoning models spend output tokens on thinking first; a 16-token cap leaves no answer.
 					maxTokens: model.reasoning ? 2048 : 16,
+					// Subscription providers refuse to run without the originating session cwd.
+					cwd: ctx.cwd,
 					...(reasoning ? { reasoning } : {}),
 					signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
 				},

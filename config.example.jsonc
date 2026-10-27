@@ -13,6 +13,8 @@
   "downgradeMaxContext": 80000,
   // Prompts containing these words go straight to "hard".
   "hardKeywords": ["ulw", "ultrawork", "hyperplan"],
+  // When the classifier fails, prompts containing these (substring match) are treated as at least complex.
+  "complexKeywords": ["설계", "아키텍처", "구조", "원인", "마이그레이션", "design", "architecture", "root cause", "migration"],
 
   // Each key is the virtual model you select in /model or settings.json (provider/id).
   "profiles": {

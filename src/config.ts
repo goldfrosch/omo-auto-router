@@ -43,6 +43,8 @@ export interface RouterConfig {
 	classifier: { models: ModelChoice[]; timeoutMs: number; prompt: string };
 	downgradeMaxContext: number;
 	hardKeywords: string[];
+	/** When the classifier fails, a prompt containing one of these is treated as at least complex. */
+	complexKeywords: string[];
 	ackWords: string[];
 	ackMaxChars: number;
 	profiles: Profile[];
@@ -68,7 +70,10 @@ export const DEFAULT_ACK_WORDS = [
 	"응", "어", "웅", "ㅇㅇ", "ㅇㅋ", "ㄱㄱ", "ㄱ", "네", "넵", "예", "좋아", "좋습니다", "그래", "그렇게", "오케이",
 	"ok", "okay", "yes", "yep", "sure", "go", "진행", "진행해", "진행해줘", "계속", "계속해", "계속해줘", "고고",
 	"해줘", "부탁해", "부탁합니다",
+	"구현으로 넘어가자", "구현 시작", "넘어가자", "구현해줘", "구현해",
 ];
+
+export const DEFAULT_COMPLEX_KEYWORDS = ["설계", "아키텍처", "구조", "원인", "마이그레이션", "design", "architecture", "root cause", "migration"];
 
 export const DEFAULT_CEILINGS: Record<string, Ceiling> = {
 	low: { maxLevel: "standard", maxThinking: "low" },
@@ -87,6 +92,7 @@ export function defaultConfig(): RouterConfig {
 		classifier: { models: [{ ref: HAIKU }], timeoutMs: 15_000, prompt: DEFAULT_CLASSIFIER_PROMPT },
 		downgradeMaxContext: 80_000,
 		hardKeywords: ["ulw", "ultrawork", "hyperplan"],
+		complexKeywords: [...DEFAULT_COMPLEX_KEYWORDS],
 		ackWords: [...DEFAULT_ACK_WORDS],
 		ackMaxChars: 20,
 		profiles: [
@@ -343,6 +349,7 @@ export function normalizeConfig(raw: unknown): { config: RouterConfig; errors: s
 		else issues.add("ackMaxChars", "must be a number");
 	}
 	if (raw.hardKeywords !== undefined) config.hardKeywords = stringList(raw.hardKeywords, "hardKeywords", issues) ?? config.hardKeywords;
+	if (raw.complexKeywords !== undefined) config.complexKeywords = stringList(raw.complexKeywords, "complexKeywords", issues) ?? config.complexKeywords;
 	if (raw.ackWords !== undefined) config.ackWords = stringList(raw.ackWords, "ackWords", issues) ?? config.ackWords;
 
 	if (raw.profiles !== undefined) {

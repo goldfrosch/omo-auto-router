@@ -54,6 +54,12 @@ export function hasHardKeyword(config: RouterConfig, prompt: string): boolean {
 	return new RegExp(`\\b(?:${pattern})(?:-[a-z]+)?\\b`, "i").test(prompt);
 }
 
+/** Plain substring match: \b does not work around Hangul. */
+export function hasComplexKeyword(config: RouterConfig, prompt: string): boolean {
+	const text = prompt.toLowerCase();
+	return config.complexKeywords.some((word) => text.includes(word.toLowerCase()));
+}
+
 export function isAck(config: RouterConfig, prompt: string): boolean {
 	const trimmed = prompt.trim();
 	if (!trimmed || trimmed.length > config.ackMaxChars || /[?？]/.test(trimmed) || config.ackWords.length === 0) return false;
@@ -94,6 +100,7 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 	let source: Source;
 	let size: Level | undefined;
 	let classifierError: string | undefined;
+	let floor: Level | undefined;
 	if (hasHardKeyword(config, prompt)) {
 		source = "rule";
 		size = "hard";
@@ -110,9 +117,11 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 		size = result.size;
 		classifierError = result.error;
 		source = size ? "classifier" : "fallback";
+		if (!size && hasComplexKeyword(config, prompt)) floor = "complex";
 	}
 
-	let level: Level = size ?? current?.level ?? "standard";
+	const held: Level = current?.level ?? "standard";
+	let level: Level = size ?? (floor && rank(floor) > rank(held) ? floor : held);
 	if (current?.level && ctxTokens >= config.downgradeMaxContext && rank(level) < rank(current.level)) level = current.level;
 	if (rank(level) > rank(ceiling.maxLevel)) level = ceiling.maxLevel;
 	level = fitContext(profile, level, ctxTokens);

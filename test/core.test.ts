@@ -111,6 +111,19 @@ describe("decide", () => {
 		expect(d).toMatchObject({ source: "fallback", state: { level: "complex" }, classifierError: "boom" });
 	});
 
+	test("classifier failure on a design prompt raises the floor to complex", async () => {
+		const d = await decide(input({ prompt: "일괄 적용 구조 확정해줘" }), failClassify);
+		expect(d).toMatchObject({ source: "fallback", state: { level: "complex" } });
+		const held = await decide(input({ prompt: "design it", current: { level: "hard" } }), failClassify);
+		expect(held.state.level).toBe("hard");
+		const plain = await decide(input({ prompt: "커밋 푸시해줘" }), failClassify);
+		expect(plain.state.level).toBe("standard");
+	});
+
+	test("short go-ahead phrases are acks", () => {
+		expect(isAck(defaultConfig(), "구현으로 넘어가자")).toBe(true);
+	});
+
 	test("no downgrade once the context is large", async () => {
 		const d = await decide(input({ prompt: "thanks", ctxTokens: 100_000, current: { level: "complex" } }), classifyAs("trivial"));
 		expect(d.state.level).toBe("complex");

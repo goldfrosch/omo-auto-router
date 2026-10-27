@@ -45,7 +45,7 @@ omo를 재시작한 다음 `/model`에서 프로필(예: `auto/mixed`)을 고릅
 - `maxContext`: 컨텍스트가 이 값 이상이면 그 등급을 건너뛰고 한 단계 위 등급을 씁니다.
 - `tags`: 프롬프트에 `#gpt`처럼 적으면 그 턴은 해당 경로로 고정됩니다.
 - `ceilings`: 가상 모델에서 고른 thinking 레벨(low / medium / high / max)마다 허용할 최대 등급과 최대 thinking을 정합니다. 기본값은 low → standard·low, medium → standard·high, high → hard·high, max → hard·max입니다. 레벨을 빼려면 `null`을 넣습니다.
-- 전역 설정: `downgradeMaxContext`(기본 80000, 이 이상이면 낮은 등급으로 내리지 않음), `hardKeywords`, `ackWords`, `ackMaxChars`.
+- 전역 설정: `downgradeMaxContext`(기본 80000, 이 이상이면 낮은 등급으로 내리지 않음), `hardKeywords`, `complexKeywords`(분류기가 실패했을 때 이 단어가 있으면 최소 complex로 올림), `ackWords`, `ackMaxChars`.
 
 설정 파일이 없으면 기존 `anthropic-subscription/claude-auto` 프로필(Haiku / Sonnet / Opus)을 씁니다. 전체 기본값은 `config.example.jsonc`에 있습니다.
 

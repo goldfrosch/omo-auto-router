@@ -16,6 +16,8 @@ export interface DecideInput {
 	current?: RouterState;
 	ctxTokens: number;
 	selectedThinking: string;
+	/** Context a route's model can take; caps `maxContext` when known. */
+	roomOf?: RoomOf;
 }
 
 export interface Decision {
@@ -27,6 +29,9 @@ export interface Decision {
 }
 
 export type Classify = () => Promise<{ size?: Level; error?: string }>;
+
+/** Context tokens a route's model can take while leaving room for its largest answer. */
+export type RoomOf = (route: RouteSpec) => number | undefined;
 
 const rank = (level: Level) => LEVELS.indexOf(level);
 const thinkingRank = (thinking: Thinking) => THINKING.indexOf(thinking);
@@ -67,11 +72,18 @@ export function isAck(config: RouterConfig, prompt: string): boolean {
 	return new RegExp(`^(?:${words})(?=$|[\\s.,!~…ㅋㅎ])`, "i").test(trimmed);
 }
 
+/** The smaller of the route's `maxContext` and what its model can take. */
+export function limitOf(route: RouteSpec, roomOf?: RoomOf): number | undefined {
+	const room = roomOf?.(route);
+	if (room === undefined) return route.maxContext;
+	return route.maxContext === undefined ? room : Math.min(room, route.maxContext);
+}
+
 /** Context too large for a route: climb to the first higher level that has room, ending at hard. */
-export function fitContext(profile: Profile, level: Level, ctxTokens: number): Level {
+export function fitContext(profile: Profile, level: Level, ctxTokens: number, roomOf?: RoomOf): Level {
 	let at = level;
 	while (rank(at) < LEVELS.length - 1) {
-		const limit = profile.levels[at].maxContext;
+		const limit = limitOf(profile.levels[at], roomOf);
 		if (limit === undefined || ctxTokens < limit) break;
 		at = LEVELS[rank(at) + 1] as Level;
 	}
@@ -90,8 +102,9 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 	const tag = findTag(profile, prompt);
 	if (tag) {
 		const route = profile.tags[tag] as RouteSpec;
-		if (route.maxContext !== undefined && ctxTokens >= route.maxContext) {
-			const level = fitContext(profile, "standard", ctxTokens);
+		const limit = limitOf(route, input.roomOf);
+		if (limit !== undefined && ctxTokens >= limit) {
+			const level = fitContext(profile, "standard", ctxTokens, input.roomOf);
 			return { source: "tag", state: { level }, route: profile.levels[level], thinking: profile.levels[level].thinking };
 		}
 		return { source: "tag", state: { tag }, route, thinking: route.thinking };
@@ -124,7 +137,7 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 	let level: Level = size ?? (floor && rank(floor) > rank(held) ? floor : held);
 	if (current?.level && ctxTokens >= config.downgradeMaxContext && rank(level) < rank(current.level)) level = current.level;
 	if (rank(level) > rank(ceiling.maxLevel)) level = ceiling.maxLevel;
-	level = fitContext(profile, level, ctxTokens);
+	level = fitContext(profile, level, ctxTokens, input.roomOf);
 
 	const route = profile.levels[level];
 	const state: RouterState = size ? { level, size } : { level };
@@ -140,6 +153,20 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 export function routeOfState(profile: Profile, state: RouterState | undefined): RouteSpec | undefined {
 	if (state?.tag) return profile.tags[state.tag];
 	return state?.level ? profile.levels[state.level] : undefined;
+}
+
+/**
+ * Mid-turn check: tool results can grow the context past the route chosen at the start of the
+ * turn. Returns the state to climb to, or undefined when the current route still has room.
+ */
+export function outgrown(profile: Profile, state: RouterState | undefined, ctxTokens: number, roomOf?: RoomOf): RouterState | undefined {
+	const route = routeOfState(profile, state);
+	if (!state || !route) return undefined;
+	const limit = limitOf(route, roomOf);
+	if (limit === undefined || ctxTokens < limit) return undefined;
+	const level = fitContext(profile, state.tag ? "standard" : (state.level ?? "standard"), ctxTokens, roomOf);
+	if (!state.tag && level === state.level) return undefined;
+	return state.size ? { level, size: state.size } : { level };
 }
 
 /** The level whose candidates list `ref`, so a turn after a manual switch still compares correctly. */

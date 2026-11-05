@@ -10,8 +10,10 @@ import {
 	isTransientError,
 	levelOfModel,
 	minThinking,
+	outgrown,
 	pickModel,
 	routeOfState,
+	type RoomOf,
 	type RouterState,
 } from "../src/core.ts";
 import { appendLog, readLog, summarize } from "../src/log.ts";
@@ -137,6 +139,16 @@ async function classify(
 	return { error: errors.join("; ") || "aborted", ...(lastRef ? { model: lastRef } : {}) };
 }
 
+/** Window minus the largest answer: the provider rejects a prompt that leaves no room for max_tokens. */
+const roomFor =
+	(ctx: ExtensionContext): RoomOf =>
+	(route) => {
+		const choice = pickModel(route, (ref) => usable(ctx, ref));
+		const model = choice ? findModel(ctx, choice.ref) : undefined;
+		if (!model || model.contextWindow <= 0) return undefined;
+		return model.contextWindow - Math.min(Math.max(model.maxTokens, 0), Math.floor(model.contextWindow / 2));
+	};
+
 function describeRoute(ctx: ExtensionContext, route: RouteSpec): string {
 	return route.models
 		.map((choice) => `${choice.ref}${usable(ctx, choice.ref) ? "" : " (unavailable)"}${choice.thinking ? `:${choice.thinking}` : ""}`)
@@ -204,6 +216,16 @@ export default function autoRouter(pi: ExtensionAPI): void {
 				const previous = request.previous;
 				const selected = request.thinkingLevel;
 
+				if (request.reason === "continuation" && previous) {
+					const ctxTokens = ctx.getContextUsage()?.tokens ?? 0;
+					const to = outgrown(active, request.state, ctxTokens, roomFor(ctx));
+					const next = to ? resolve(ctx, active, routeOfState(active, to) as RouteSpec, selected) : undefined;
+					if (to && next && refOf(next.model) !== refOf(previous.model)) {
+						await log(ctx, { session: ctx.sessionManager.getSessionId(), profile: keyOf(active), reason: "continuation", source: "context", ctxTokens, to: to.level, model: refOf(next.model), thinking: next.thinkingLevel });
+						showRoute(ctx, next);
+						return { ...next, state: to };
+					}
+				}
 				if ((request.reason === "direct" || request.reason === "continuation") && previous) {
 					return { model: previous.model, thinkingLevel: previous.thinkingLevel ?? "medium" };
 				}
@@ -248,7 +270,7 @@ export default function autoRouter(pi: ExtensionAPI): void {
 				let classifierModel: string | undefined;
 
 				const decision = await decide(
-					{ config, profile: active, prompt, ctxTokens, selectedThinking: selected, ...(current ? { current } : {}) },
+					{ config, profile: active, prompt, ctxTokens, selectedThinking: selected, roomOf: roomFor(ctx), ...(current ? { current } : {}) },
 					async () => {
 						const result = await classify(ctx, config, readPrevious(ctx), prompt, request.signal);
 						classifierModel = result.model;

@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultConfig, normalizeConfig, parseJsonc, type Level, type RouterConfig } from "../src/config.ts";
-import { decide, findTag, fitContext, isAck, pickModel, type Classify, type DecideInput } from "../src/core.ts";
+import { decide, findTag, fitContext, isAck, outgrown, pickModel, type Classify, type DecideInput, type RoomOf } from "../src/core.ts";
+
+/** Haiku: 100k window minus a 32k answer. */
+const haikuRoom: RoomOf = (route) => (route.models[0]?.ref.includes("haiku") ? 68_000 : undefined);
 
 const classifyAs = (size: Level): Classify => async () => ({ size });
 const failClassify: Classify = async () => ({ error: "boom" });
@@ -152,6 +155,13 @@ describe("decide", () => {
 		const d = await decide(input({ prompt: "hi", ctxTokens: 85_000 }), classifyAs("trivial"));
 		expect(d.state.level).toBe("standard");
 	});
+
+	test("model room below maxContext also climbs", async () => {
+		const d = await decide(input({ prompt: "hi", ctxTokens: 72_000, roomOf: haikuRoom }), classifyAs("trivial"));
+		expect(d.state.level).toBe("standard");
+		const tag = await decide(input({ prompt: "#haiku hi", ctxTokens: 72_000, roomOf: haikuRoom }), neverClassify);
+		expect(tag.state).toEqual({ level: "standard" });
+	});
 });
 
 describe("helpers", () => {
@@ -165,6 +175,15 @@ describe("helpers", () => {
 
 	test("fitContext leaves levels without a limit alone", () => {
 		expect(fitContext(profile, "standard", 1_000_000)).toBe("standard");
+	});
+
+	test("outgrown climbs mid-turn once the route runs out of room", () => {
+		const claude = defaultConfig().profiles[0]!;
+		expect(outgrown(claude, { level: "trivial", size: "trivial" }, 60_000, haikuRoom)).toBeUndefined();
+		expect(outgrown(claude, { level: "trivial", size: "trivial" }, 72_000, haikuRoom)).toEqual({ level: "standard", size: "trivial" });
+		expect(outgrown(claude, { tag: "haiku" }, 81_000)).toEqual({ level: "standard" });
+		expect(outgrown(claude, { level: "standard" }, 900_000, haikuRoom)).toBeUndefined();
+		expect(outgrown(claude, undefined, 900_000)).toBeUndefined();
 	});
 
 	test("pickModel skips unusable and continues after a failed model", () => {

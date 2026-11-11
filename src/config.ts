@@ -47,6 +47,14 @@ export interface RouterConfig {
 	complexKeywords: string[];
 	ackWords: string[];
 	ackMaxChars: number;
+	/** A short prompt containing one of these (substring match) is a routine chore routed to `choreLevel`. Empty turns the rule off. */
+	choreKeywords: string[];
+	/** A prompt containing one of these is never a chore. */
+	choreBlockKeywords: string[];
+	choreMaxChars: number;
+	choreLevel: Level;
+	/** Summary requests on a virtual model (compaction) use the first of these with credentials. */
+	compactionModel: string[];
 	profiles: Profile[];
 }
 
@@ -95,6 +103,11 @@ export function defaultConfig(): RouterConfig {
 		complexKeywords: [...DEFAULT_COMPLEX_KEYWORDS],
 		ackWords: [...DEFAULT_ACK_WORDS],
 		ackMaxChars: 20,
+		choreKeywords: [],
+		choreBlockKeywords: [],
+		choreMaxChars: 120,
+		choreLevel: "standard",
+		compactionModel: [SONNET],
 		profiles: [
 			{
 				provider: "anthropic-subscription",
@@ -311,6 +324,15 @@ function stringList(raw: unknown, where: string, issues: Issues): string[] | und
 	return undefined;
 }
 
+function modelRefs(raw: unknown, where: string, issues: Issues): string[] | undefined {
+	const list = typeof raw === "string" ? [raw] : raw;
+	if (Array.isArray(list) && list.length > 0 && list.every((item) => typeof item === "string" && splitRef(item.trim()))) {
+		return list.map((item: string) => item.trim());
+	}
+	issues.add(where, 'expected "provider/model" or a list of them');
+	return undefined;
+}
+
 /** Invalid parts are reported and replaced by defaults, so one typo never disables routing. */
 export function normalizeConfig(raw: unknown): { config: RouterConfig; errors: string[] } {
 	const issues = new Issues();
@@ -348,9 +370,22 @@ export function normalizeConfig(raw: unknown): { config: RouterConfig; errors: s
 		if (typeof raw.ackMaxChars === "number" && raw.ackMaxChars >= 0) config.ackMaxChars = raw.ackMaxChars;
 		else issues.add("ackMaxChars", "must be a number");
 	}
+	if (raw.choreMaxChars !== undefined) {
+		if (typeof raw.choreMaxChars === "number" && raw.choreMaxChars >= 0) config.choreMaxChars = raw.choreMaxChars;
+		else issues.add("choreMaxChars", "must be a number");
+	}
+	if (raw.choreLevel !== undefined) {
+		if (isLevel(raw.choreLevel)) config.choreLevel = raw.choreLevel;
+		else issues.add("choreLevel", `must be one of ${LEVELS.join(", ")}`);
+	}
 	if (raw.hardKeywords !== undefined) config.hardKeywords = stringList(raw.hardKeywords, "hardKeywords", issues) ?? config.hardKeywords;
 	if (raw.complexKeywords !== undefined) config.complexKeywords = stringList(raw.complexKeywords, "complexKeywords", issues) ?? config.complexKeywords;
 	if (raw.ackWords !== undefined) config.ackWords = stringList(raw.ackWords, "ackWords", issues) ?? config.ackWords;
+	if (raw.choreKeywords !== undefined) config.choreKeywords = stringList(raw.choreKeywords, "choreKeywords", issues) ?? config.choreKeywords;
+	if (raw.choreBlockKeywords !== undefined) {
+		config.choreBlockKeywords = stringList(raw.choreBlockKeywords, "choreBlockKeywords", issues) ?? config.choreBlockKeywords;
+	}
+	if (raw.compactionModel !== undefined) config.compactionModel = modelRefs(raw.compactionModel, "compactionModel", issues) ?? config.compactionModel;
 
 	if (raw.profiles !== undefined) {
 		if (!isObject(raw.profiles)) issues.add("profiles", 'expected an object keyed by virtual model, e.g. { "auto/mixed": { ... } }');

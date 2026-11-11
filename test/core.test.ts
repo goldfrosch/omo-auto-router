@@ -36,6 +36,8 @@ const mixed = normalizeConfig(
 }`),
 );
 
+const chores = normalizeConfig({ choreKeywords: ["커밋", "푸시", "push", "deploy"], choreBlockKeywords: ["리팩터", "refactor"] }).config;
+
 describe("config", () => {
 	test("example file parses to the built-in defaults", () => {
 		const text = readFileSync(join(import.meta.dir, "..", "config.example.jsonc"), "utf8");
@@ -66,6 +68,34 @@ describe("config", () => {
 		expect(errors.some((e) => e.includes("levels.hard: is missing"))).toBe(true);
 		expect(config.profiles[0]?.id).toBe("claude-auto");
 		expect(config.classifier.timeoutMs).toBe(15_000);
+	});
+
+	test("chore and compaction keys parse, and invalid values keep the defaults", () => {
+		const ok = normalizeConfig({
+			choreKeywords: [" 커밋", "Push"],
+			choreBlockKeywords: ["리팩터"],
+			choreMaxChars: 60,
+			choreLevel: "trivial",
+			compactionModel: ["zai/glm-4.6", "anthropic-subscription/claude-sonnet-5-5"],
+		});
+		expect(ok.errors).toEqual([]);
+		expect(ok.config).toMatchObject({
+			choreKeywords: ["커밋", "Push"],
+			choreBlockKeywords: ["리팩터"],
+			choreMaxChars: 60,
+			choreLevel: "trivial",
+			compactionModel: ["zai/glm-4.6", "anthropic-subscription/claude-sonnet-5-5"],
+		});
+		expect(normalizeConfig({ compactionModel: "openai/gpt-5" }).config.compactionModel).toEqual(["openai/gpt-5"]);
+		const bad = normalizeConfig({ choreKeywords: "git", choreBlockKeywords: [""], choreMaxChars: -1, choreLevel: "huge", compactionModel: "sonnet" });
+		expect(bad.errors.map((e) => e.slice(0, e.indexOf(":"))).sort()).toEqual(["choreBlockKeywords", "choreKeywords", "choreLevel", "choreMaxChars", "compactionModel"]);
+		expect(bad.config).toMatchObject({
+			choreKeywords: [],
+			choreBlockKeywords: [],
+			choreMaxChars: 120,
+			choreLevel: "standard",
+			compactionModel: ["anthropic-subscription/claude-sonnet-5-5"],
+		});
 	});
 });
 
@@ -161,6 +191,40 @@ describe("decide", () => {
 		expect(d.state.level).toBe("standard");
 		const tag = await decide(input({ prompt: "#haiku hi", ctxTokens: 72_000, roomOf: haikuRoom }), neverClassify);
 		expect(tag.state).toEqual({ level: "standard" });
+	});
+
+	test("chore at a large context drops to choreLevel", async () => {
+		const d = await decide(input({ prompt: "커밋하고 푸시해줘", ctxTokens: 160_000, current: { level: "hard" } }, chores), neverClassify);
+		expect(d).toMatchObject({ source: "rule", rule: "chore", state: { level: "standard", size: "standard" } });
+	});
+
+	test("a chore must fit in choreMaxChars", async () => {
+		const prompt = `커밋하고 푸시해줘. ${"변경 내용도 자세히 정리해줘. ".repeat(8)}`;
+		expect(prompt.trim().length).toBeGreaterThan(chores.choreMaxChars);
+		const d = await decide(input({ prompt, ctxTokens: 160_000, current: { level: "hard" } }, chores), neverClassify);
+		expect(d).toMatchObject({ source: "locked", state: { level: "hard" } });
+	});
+
+	test("a block keyword cancels the chore", async () => {
+		const d = await decide(input({ prompt: "리팩터링하고 push해줘", ctxTokens: 160_000, current: { level: "hard" } }, chores), neverClassify);
+		expect(d).toMatchObject({ source: "locked", state: { level: "hard" } });
+	});
+
+	test("empty choreKeywords leave routing unchanged", async () => {
+		const d = await decide(input({ prompt: "커밋하고 푸시해줘", ctxTokens: 160_000, current: { level: "hard" } }), neverClassify);
+		expect(d).toMatchObject({ source: "locked", state: { level: "hard" } });
+		expect(d.rule).toBeUndefined();
+	});
+
+	test("hard keywords win over chores", async () => {
+		const d = await decide(input({ prompt: "ulw push", ctxTokens: 160_000, current: { level: "hard" } }, chores), neverClassify);
+		expect(d).toMatchObject({ source: "rule", state: { level: "hard", size: "hard" } });
+		expect(d.rule).toBeUndefined();
+	});
+
+	test("a chore level without room still climbs", async () => {
+		const d = await decide(input({ prompt: "deploy", ctxTokens: 160_000, current: { level: "hard" } }, { ...chores, choreLevel: "trivial" }), neverClassify);
+		expect(d.state.level).toBe("standard");
 	});
 });
 

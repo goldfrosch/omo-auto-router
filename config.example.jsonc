@@ -16,6 +16,20 @@
   // When the classifier fails, prompts containing these (substring match) are treated as at least complex.
   "complexKeywords": ["설계", "아키텍처", "구조", "원인", "마이그레이션", "design", "architecture", "root cause", "migration"],
 
+  // Chore rule: a prompt of at most choreMaxChars characters that contains a choreKeyword and no
+  // choreBlockKeyword (case-insensitive substring match) goes to choreLevel, even at or above
+  // downgradeMaxContext. Empty choreKeywords turns the rule off. Example:
+  //   "choreKeywords": ["커밋", "푸시", "배포", "commit", "push", "deploy"],
+  //   "choreBlockKeywords": ["리팩터", "설계", "원인", "왜", "refactor", "design", "why", "debug"],
+  "choreKeywords": [],
+  "choreBlockKeywords": [],
+  "choreMaxChars": 120,
+  "choreLevel": "standard",
+
+  // Compaction summaries for a virtual model run on the first of these with credentials, or on the
+  // profile's standard route when none has. A string or a list.
+  "compactionModel": "anthropic-subscription/claude-sonnet-5-5",
+
   // Each key is the virtual model you select in /model or settings.json (provider/id).
   "profiles": {
     "anthropic-subscription/claude-auto": {

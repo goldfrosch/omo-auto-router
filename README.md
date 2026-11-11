@@ -46,6 +46,8 @@ omo를 재시작한 다음 `/model`에서 프로필(예: `auto/mixed`)을 고릅
 - `tags`: 프롬프트에 `#gpt`처럼 적으면 그 턴은 해당 경로로 고정됩니다.
 - `ceilings`: 가상 모델에서 고른 thinking 레벨(low / medium / high / max)마다 허용할 최대 등급과 최대 thinking을 정합니다. 기본값은 low → standard·low, medium → standard·high, high → hard·high, max → hard·max입니다. 레벨을 빼려면 `null`을 넣습니다.
 - 전역 설정: `downgradeMaxContext`(기본 80000, 이 이상이면 낮은 등급으로 내리지 않음), `hardKeywords`, `complexKeywords`(분류기가 실패했을 때 이 단어가 있으면 최소 complex로 올림), `ackWords`, `ackMaxChars`.
+- 잡무 규칙: `choreKeywords`, `choreBlockKeywords`, `choreMaxChars`, `choreLevel`. 아래 "잡무(chore) 규칙"을 보세요.
+- `compactionModel`(기본 `anthropic-subscription/claude-sonnet-5-5`): 가상 모델 세션의 컨텍스트 압축(compaction) 요약을 보낼 모델입니다. 아래 "압축 요약"을 보세요.
 
 설정 파일이 없으면 기존 `anthropic-subscription/claude-auto` 프로필(Haiku / Sonnet / Opus)을 씁니다. 전체 기본값은 `config.example.jsonc`에 있습니다.
 
@@ -53,13 +55,40 @@ omo를 재시작한 다음 `/model`에서 프로필(예: `auto/mixed`)을 고릅
 
 ## 명령
 
-- `/auto-router`: 설정 경로·오류와 등급별로 해석된 모델을 보여줍니다. 자격증명이 없는 모델에는 `(unavailable)`이 붙습니다.
+- `/auto-router`: 설정 경로·오류, 분류기·압축 요약 모델, 등급별로 해석된 모델을 보여줍니다. 자격증명이 없는 모델에는 `(unavailable)`이 붙습니다.
 - `/auto-router stats [days]`: `~/.omo/agent/logs/auto-router.jsonl`을 집계합니다.
 - `/auto-router reload`: 프로필을 다시 등록합니다.
 
 ## 판정 순서
 
-`#tag` → hard 키워드 → 짧은 수락("응", "ok") 시 현재 등급 유지 → 컨텍스트가 크고 이미 상한 등급이면 고정 → 분류기. tool 호출 후 이어지는 요청과 재시도는 직전 모델을 그대로 써서 프롬프트 캐시를 유지합니다.
+`#tag` → hard 키워드 → 잡무(chore) 규칙 → 짧은 수락("응", "ok") 시 현재 등급 유지 → 컨텍스트가 크고 이미 상한 등급이면 고정 → 분류기. tool 호출 후 이어지는 요청과 재시도는 직전 모델을 그대로 써서 프롬프트 캐시를 유지합니다.
+
+## 잡무(chore) 규칙
+
+커밋·푸시·배포 같은 짧은 정형 요청을 긴 세션에서도 싼 등급으로 보냅니다. 기본값은 꺼짐(`"choreKeywords": []`)입니다.
+
+```jsonc
+{
+  "choreKeywords": ["커밋", "푸시", "배포", "commit", "push", "deploy"],
+  "choreBlockKeywords": ["리팩터", "설계", "원인", "왜", "refactor", "design", "why", "debug"],
+  "choreMaxChars": 120,     // 앞뒤 공백을 뺼 프롬프트 길이가 이 이하일 때만
+  "choreLevel": "standard"  // 잡무로 판정된 턴의 등급
+}
+```
+
+- 판정: 프롬프트 길이가 `choreMaxChars` 이하이고, `choreKeywords` 중 하나를 포함하고, `choreBlockKeywords`는 하나도 포함하지 않으면 잡무입니다. 대소문자를 가리지 않는 부분 문자열 비교라 한글에도 맞습니다. 그래서 `pr`처럼 짧은 영문 키워드는 `prompt` 같은 다른 단어에도 걸립니다.
+- 잡무 턴은 `downgradeMaxContext`를 무시하고 `choreLevel`로 내려갑니다. 모델을 바꾸면 프롬프트 캐시를 한 번 새로 쓰므로, 그 비용을 감수할 만한 짧은 정형 요청에만 쓰세요.
+- `hardKeywords`가 먼저 적용됩니다. `ceilings`와 `maxContext`는 그대로 적용되므로, `choreLevel: "trivial"`이어도 컨텍스트가 trivial의 `maxContext`를 넘으면 standard로 올라갑니다.
+- 로그(`auto-router.jsonl`)에는 `"source": "rule", "rule": "chore"`로 남습니다.
+
+## 압축 요약 (`compactionModel`)
+
+senpi 기본 compaction은 요약 요청을 세션 모델로 보냅니다. 가상 모델은 라우팅을 거치지 않으면 보낼 수 없어서(`Virtual model ... must be routed before streaming`) 요약이 매번 실패하고 기계적인 대체 요약(deterministic fallback)으로 떨어졌습니다.
+
+이 플러그인은 세션이 시작될 때 senpi의 요약 요청 경로(`ModelRuntime.stream`)를 감쌉니다. 등록된 프로필의 가상 모델로 오는 요약 요청은 `compactionModel` 중 자격증명이 있는 첫 모델로, 하나도 없으면 프로필의 standard 경로로 보냅니다. 실제 모델 요청은 그대로 통과합니다.
+
+- 대화를 처리하던 모델과 다른 모델로 요약하면 프롬프트 캐시를 쓰지 못합니다.
+- settings.json에 `compaction.model`을 두면 senpi가 그 모델로 요약하므로 `compactionModel`은 쓰이지 않습니다.
 
 ## 개발
 

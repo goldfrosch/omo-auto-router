@@ -25,6 +25,8 @@ export interface Decision {
 	state: RouterState;
 	route: RouteSpec;
 	thinking: Thinking;
+	/** Which rule decided a `rule` turn when it was not a hard keyword. */
+	rule?: "chore";
 	classifierError?: string;
 }
 
@@ -65,6 +67,15 @@ export function hasComplexKeyword(config: RouterConfig, prompt: string): boolean
 	return config.complexKeywords.some((word) => text.includes(word.toLowerCase()));
 }
 
+/** A short routine request such as a commit or deploy. Substring match, like hasComplexKeyword. */
+export function isChore(config: RouterConfig, prompt: string): boolean {
+	const trimmed = prompt.trim();
+	if (config.choreKeywords.length === 0 || trimmed.length > config.choreMaxChars) return false;
+	const text = trimmed.toLowerCase();
+	const has = (word: string) => text.includes(word.toLowerCase());
+	return config.choreKeywords.some(has) && !config.choreBlockKeywords.some(has);
+}
+
 export function isAck(config: RouterConfig, prompt: string): boolean {
 	const trimmed = prompt.trim();
 	if (!trimmed || trimmed.length > config.ackMaxChars || /[?？]/.test(trimmed) || config.ackWords.length === 0) return false;
@@ -91,9 +102,9 @@ export function fitContext(profile: Profile, level: Level, ctxTokens: number, ro
 }
 
 /**
- * Picks the route for a user turn. Order: #tag, hard keyword, short acknowledgement, locked at the
- * ceiling, then the classifier. Downgrades are refused once the context reaches
- * `downgradeMaxContext` because switching models drops the prompt cache.
+ * Picks the route for a user turn. Order: #tag, hard keyword, chore, short acknowledgement, locked
+ * at the ceiling, then the classifier. Downgrades are refused once the context reaches
+ * `downgradeMaxContext` because switching models drops the prompt cache; a chore is exempt.
  */
 export async function decide(input: DecideInput, classify: Classify): Promise<Decision> {
 	const { config, profile, prompt, current, ctxTokens } = input;
@@ -114,9 +125,14 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 	let size: Level | undefined;
 	let classifierError: string | undefined;
 	let floor: Level | undefined;
+	let chore = false;
 	if (hasHardKeyword(config, prompt)) {
 		source = "rule";
 		size = "hard";
+	} else if (isChore(config, prompt)) {
+		source = "rule";
+		size = config.choreLevel;
+		chore = true;
 	} else if (current && isAck(config, prompt)) {
 		source = "ack";
 		if (current.tag && profile.tags[current.tag]) {
@@ -135,7 +151,7 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 
 	const held: Level = current?.level ?? "standard";
 	let level: Level = size ?? (floor && rank(floor) > rank(held) ? floor : held);
-	if (current?.level && ctxTokens >= config.downgradeMaxContext && rank(level) < rank(current.level)) level = current.level;
+	if (!chore && current?.level && ctxTokens >= config.downgradeMaxContext && rank(level) < rank(current.level)) level = current.level;
 	if (rank(level) > rank(ceiling.maxLevel)) level = ceiling.maxLevel;
 	level = fitContext(profile, level, ctxTokens, input.roomOf);
 
@@ -146,6 +162,7 @@ export async function decide(input: DecideInput, classify: Classify): Promise<De
 		state,
 		route,
 		thinking: minThinking(route.thinking, ceiling.maxThinking),
+		...(chore ? { rule: "chore" as const } : {}),
 		...(classifierError ? { classifierError } : {}),
 	};
 }
@@ -182,6 +199,11 @@ export function pickModel(route: RouteSpec, usable: (ref: string) => boolean, af
 	const start = after === undefined ? 0 : route.models.findIndex((choice) => choice.ref === after) + 1;
 	if (after !== undefined && start === 0) return undefined;
 	return route.models.slice(start).find((choice) => usable(choice.ref));
+}
+
+/** Summary model for a virtual model's compaction: the first usable `compactionModel`, else the standard route. */
+export function compactionTarget(config: RouterConfig, profile: Profile, usable: (ref: string) => boolean): string | undefined {
+	return config.compactionModel.find(usable) ?? pickModel(profile.levels.standard, usable)?.ref;
 }
 
 export const isOverflowError = (message: string) => /context|too long|too large|overflow|maximum.*tokens/i.test(message);

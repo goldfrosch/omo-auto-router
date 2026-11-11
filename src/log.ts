@@ -10,6 +10,8 @@ export interface LogEntry {
 	profile?: string;
 	reason?: string;
 	source?: string;
+	/** Set when a `rule` decision came from a rule other than hardKeywords, e.g. "chore". */
+	rule?: string;
 	size?: string;
 	to?: string;
 	model?: string;

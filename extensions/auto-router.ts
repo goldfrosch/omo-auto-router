@@ -5,6 +5,7 @@ import type { ExtensionAPI, ExtensionContext } from "@code-yeongyu/senpi";
 import { LEVELS, THINKING, loadConfig, resolveAgentDir, splitRef, type Level, type Profile, type RouteSpec, type RouterConfig } from "../src/config.ts";
 import {
 	ceilingFor,
+	compactionTarget,
 	decide,
 	isOverflowError,
 	isTransientError,
@@ -17,6 +18,7 @@ import {
 	type RouterState,
 } from "../src/core.ts";
 import { appendLog, readLog, summarize } from "../src/log.ts";
+import { routeSummaryStreams } from "../src/summary-route.ts";
 
 const STATUS_KEY = "auto-router";
 const LEGACY_FILE = join(resolveAgentDir(), "extensions", "auto-router.ts");
@@ -73,12 +75,14 @@ function fallbackPrompt(messages: readonly { role: string; content?: unknown }[]
 	return "";
 }
 
-function findModel(ctx: ExtensionContext, ref: string): Model<Api> | undefined {
+type Registry = Pick<ExtensionContext, "modelRegistry">;
+
+function findModel(ctx: Registry, ref: string): Model<Api> | undefined {
 	const parts = splitRef(ref);
 	return parts ? ctx.modelRegistry.find(parts.provider, parts.id) : undefined;
 }
 
-function usable(ctx: ExtensionContext, ref: string): boolean {
+function usable(ctx: Registry, ref: string): boolean {
 	const model = findModel(ctx, ref);
 	return model !== undefined && ctx.modelRegistry.hasConfiguredAuth(model);
 }
@@ -161,6 +165,7 @@ function doctorReport(ctx: ExtensionContext): string {
 	for (const error of errors) lines.push(`  error: ${error}`);
 	if (existsSync(LEGACY_FILE)) lines.push(`  warning: ${LEGACY_FILE} also registers a router; run the setup script to retire it`);
 	lines.push(`classifier: ${config.classifier.models.map((c) => `${c.ref}${usable(ctx, c.ref) ? "" : " (unavailable)"}`).join(" > ")}, timeout ${config.classifier.timeoutMs} ms`);
+	lines.push(`compaction: ${config.compactionModel.map((ref) => `${ref}${usable(ctx, ref) ? "" : " (unavailable)"}`).join(" > ")}, else the profile's standard route`);
 	for (const profile of config.profiles) {
 		lines.push(`${keyOf(profile)} "${profile.name}"`);
 		for (const level of LEVELS) {
@@ -196,6 +201,17 @@ export default function autoRouter(pi: ExtensionAPI): void {
 		if (!choice) return undefined;
 		const thinking = minThinking(choice.thinking ?? route.thinking, ceilingFor(profile, selected).maxThinking);
 		return { model: findModel(ctx, choice.ref) as Model<Api>, thinkingLevel: thinking as ModelThinkingLevel };
+	}
+
+	/** senpi's compaction summarizer streams the selected virtual model unrouted; see src/summary-route.ts. */
+	function routeSummaries(ctx: ExtensionContext): void {
+		// Keep the registry, not ctx: a context goes stale on /reload and its getters throw.
+		const registry: Registry = { modelRegistry: ctx.modelRegistry };
+		routeSummaryStreams(ctx.modelRegistry.modelRuntime, (model) => {
+			const profile = currentProfile(model.provider, model.id);
+			const ref = profile && compactionTarget(loadConfig().config, profile, (candidate) => usable(registry, candidate));
+			return ref ? findModel(registry, ref) : undefined;
+		});
 	}
 
 	function showRoute(ctx: ExtensionContext, resolved: Resolved): void {
@@ -296,6 +312,7 @@ export default function autoRouter(pi: ExtensionAPI): void {
 					ceiling: selected,
 					ctxTokens,
 					source: decision.source,
+					...(decision.rule ? { rule: decision.rule } : {}),
 					size: state.size,
 					from: current?.tag ? `#${current.tag}` : (current?.level ?? null),
 					to: state.tag ? `#${state.tag}` : state.level,
@@ -339,6 +356,7 @@ export default function autoRouter(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		routeSummaries(ctx);
 		if (!ctx.hasUI) return;
 		const { errors } = loadConfig();
 		if (errors.length > 0) ctx.ui.notify(`auto-router: ${errors.length} config problem(s); /auto-router shows them`, "warning");
